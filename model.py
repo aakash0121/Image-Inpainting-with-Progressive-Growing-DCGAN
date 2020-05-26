@@ -35,7 +35,36 @@ def add_disc_block(old_model, n_input_layers=3):
     new_block = d
 
     # skip the input, 1X1 and activation for old model
+    for i in range(n_input_layers, len(old_model.layers)):
+        d = old_model.layers[i](d)
     
+    # define straight-through model
+    m1 = tf.keras.models.Model(in_image, d)
+
+    # compile model
+    m1.compile(loss=wasserstein_loss, optimizer=tf.keras.optimizers.Adam(learning_rate=0.001, beta_1=0, beta_2=0.99, epsilon=10e-8))
+
+    # downsample the new larger image
+    downsample = tf.keras.layes.AveragePooling2D()(in_image)
+
+    # connect old input processing to downsampled new input
+    old_block = old_model.layers[1](downsample)
+    old_block = old_model.layers[2](old_block)
+
+    # fade-in output of old model -> input layer with new input
+    d = WeightedSum()([old_block, new_block])
+
+    # skip the input, 1X1 and activation for the old model
+    for i in range(n_input_layers, len(old_model.layers)):
+        d = old_model.layers[i](d)
+    
+    # define straight-through model
+    m2 = tf.keras.models.Model(in_image, d)
+
+    # compile the model
+    m2.compile(loss=wasserstein_loss, optimizer=tf.keras.optimizers.Adam(learning_rate=0.001, beta_1=0, beta_2=0.99, epsilon=10e-8))
+
+    return [m1, m2]
 
 # define discriminator model
 # input image start with 4X4 RGB
@@ -71,10 +100,10 @@ def discriminator(n_blocks, input_shape=(4,4,3)):
     out_class = tf.keras.layers.Dense(1)(d)
 
     # define model
-    model = tf.keras.layers.Model(in_image, out_class)
+    model = tf.keras.models.Model(in_image, out_class)
 
     # compile the model
-    model.compile(loss=wasserstein_loss, optimizer=tf.keras.optimizers.Adam(lr=0.001, beta_1=0, beta_2=0.99, epsilon=10e-8))
+    model.compile(loss=wasserstein_loss, optimizer=tf.keras.optimizers.Adam(learning_rate=0.001, beta_1=0, beta_2=0.99, epsilon=10e-8))
 
     # store model
     model_list.append([model, model])
