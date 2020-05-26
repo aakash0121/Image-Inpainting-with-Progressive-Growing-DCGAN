@@ -18,9 +18,10 @@ class WeightedSum():
 
 # used to provide statistical summary of batch of activations
 # only used in the output block of discriminator layer
-class MiniBatchStdev():
+class MiniBatchStdev(tf.keras.layers.Layer):
+    # layer initialization
     def __init__(self, **kwargs):
-        pass
+        super(MiniBatchStdev, self).__init__(**kwargs)
 
     def call(self, inputs):
         # mean value for each pixel across channels
