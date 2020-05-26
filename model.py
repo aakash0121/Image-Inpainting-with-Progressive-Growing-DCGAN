@@ -5,6 +5,48 @@ from custom_layers_func import MiniBatchStdev, WeightedSum, PixelNorm
 def wasserstein_loss(y_true, y_pred):
     return tf.keras.backend.mean(y_pred*y_true)
 
+# adds a generator block
+def add_gen_block(old_model):
+    # weight initializaiton
+    init = tf.keras.initializers.RandomNormal(stddev=0.02)
+
+    # weight constraint
+    const = tf.keras.constraints.max_norm(1.0)
+
+    end_block = old_model.layers[-2].output
+
+    # upsample
+    upsamp = tf.keras.layers.UpSampling2D()(end_block)
+
+    g = tf.keras.layers.Conv2D(128, (3,3), padding="same", kernel_initializer=init, kernel_constraint=const)(upsamp)
+    g = PixelNorm()(g)
+    g = tf.keras.layers.LeakyReLU(alpha=0.2)(g)
+    
+    g = tf.keras.layers.Conv2D(128, (3,3), padding="same", kernel_initializer=init, kernel_constraint=const)(g)
+    g = PixelNorm()(g)
+    g = tf.keras.layers.LeakyReLU(alpha=0.2)(g)
+
+    # add new output layer
+    out_img = tf.keras.layers.Conv2D(3, (1,1), padding="same", kernel_initializer=init, kernel_constraint=const)(g)
+
+    #define model
+    m1 = tf.keras.models.Model(old_model.input, out_img)
+
+    # get output layer from old model
+    old_out = old_model.layers[-1]
+
+    # connect the old output layer to upsampling
+    out_img2 = old_out(upsamp)
+
+    # define new output image as the weighted sum of old and new models
+    merged = WeightedSum()([out_img2, out_img])
+
+    # define model
+    m2 = tf.keras.models.Model(old_model.input, merged)
+
+    return [m1, m2]
+
+
 # adds a discriminator block
 def add_disc_block(old_model, n_input_layers=3):
     # weights initialization
@@ -119,3 +161,49 @@ def discriminator(n_blocks, input_shape=(4,4,3)):
     
     return model_list
 
+
+def generator(latent_dim, num_blocks, in_dim=4):
+    # weight initialization
+    init = tf.keras.initializers.RandomNormal(stddev=0.02)
+
+    # weight constraint
+    const = tf.keras.constraints.max_norm(1.0)
+    model_list = list()
+
+    # base model latent input
+    in_latent = tf.keras.layers.Input(shape=(latent_dim,))
+
+    # linear scale upto activation maps
+    g = tf.keras.layers.Dense(128*in_dim*in_dim, kernel_initializer=init, kernel_constraint=const)(in_latent)
+    g = tf.keras.layers.Reshape((in_dim, in_dim, 128))(g)
+
+    # conv 4X4(input)
+    g = tf.keras.layers.Conv2D(128, (3,3), padding="same", kernel_initializer=init, kernel_constraint=const)(g)
+    g = PixelNorm()(g)
+    g = tf.keras.layers.LeakyReLU(alpha=0.2)(g)
+
+    # conv 3X3
+    g = tf.keras.layers.Conv2D(128, (3,3), padding="same", kernel_initializer=init, kernel_constraint=const)(g)
+    g = PixelNorm()(g)
+    g = tf.keras.layers.LeakyReLU(alpha=0.2)(g)
+
+    # conv 1X1(output)
+    out_img = tf.keras.layers.Conv2D(3, (1,1), padding="same", kernel_initializer=init, kernel_constraint=const)(g)
+
+    # define model
+    model = tf.keras.models.Model(in_latent, out_img)
+
+    # store model
+    model_list.append([model, model])
+
+    # create submodels
+    for i in range(0, num_blocks):
+        # get prior model without fade-on
+        old_model = model_list[i][0]
+
+        # create new model for next resolution
+        models = add_gen_block(old_model)
+
+        # store model
+        model_list.append(models)
+    return model_list
