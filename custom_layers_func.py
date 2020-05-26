@@ -3,8 +3,9 @@ import tensorflow as tf
 # weighted function class for PGGAN
 # It is used for merging two input layers 
 # weighted sum = ((1.0 – alpha) * input1) + (alpha * input2)
-class WeightedSum():
+class WeightedSum(tf.keras.layers.Add):
     def __init__(self, alpha=0.0, **kwargs):
+        super(WeightedSum, self).__init__(**kwargs)
         # setting the alpha value
         self.alpha = tf.keras.backend.variable(alpha, name="ws_alpha")
     
